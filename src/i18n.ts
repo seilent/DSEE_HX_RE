@@ -80,7 +80,13 @@ const zh = {
   aboutRepo: "仓库",
 } as const;
 
-const en: { [K in keyof typeof zh]: (typeof zh)[K] } = {
+type DictLeaf<T> = T extends string
+  ? string
+  : T extends (...args: infer A) => infer R
+    ? (...args: A) => R
+    : T;
+
+const en: { [K in keyof typeof zh]: DictLeaf<(typeof zh)[K]> } = {
   tracksCount: (n: number) => `${n} track${n === 1 ? "" : "s"}`,
   add: "Add",
   clear: "Clear",
@@ -161,8 +167,8 @@ const en: { [K in keyof typeof zh]: (typeof zh)[K] } = {
 
 const dicts = { zh, en } as const;
 
-export type Dict = typeof zh;
+export type Dict = { [K in keyof typeof zh]: DictLeaf<(typeof zh)[K]> };
 
 export function t(locale: Locale): Dict {
-  return dicts[locale] ?? dicts.zh;
+  return (dicts[locale] ?? dicts.zh) as Dict;
 }

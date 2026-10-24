@@ -22,8 +22,6 @@ Requires **Windows x64**. ffmpeg + ffprobe must be available (on `PATH`, or set 
 
 ## Quick start / 快速开始
 
-<!-- screenshot: docs/screenshots/01-empty.png -->
-
 1. Open **DSEE HX RE**.
 2. Click **Add** / 添加, or drag audio files onto the window.
 3. Click **Browse** / 浏览 to choose an output folder.
@@ -44,8 +42,6 @@ Supported inputs include common formats ffmpeg can decode (WAV / FLAC / MP3 / M4
 
 ## Main window / 主界面
 
-<!-- screenshot: docs/screenshots/02-queue.png -->
-
 | Area / 区域 | What it does / 作用 |
 |--|--|
 | **Add** / 添加 | Pick files into the queue / 把文件加入列表 |
@@ -63,41 +59,11 @@ Supported inputs include common formats ffmpeg can decode (WAV / FLAC / MP3 / M4
 
 ## Settings / 设置
 
-<!-- screenshot: docs/screenshots/03-settings.png -->
-
 - **Language / 语言** — Chinese or English UI / 中英界面  
 - **Theme / 主题** — base color / 基础配色  
 - **FFmpeg / FFprobe** — custom paths or auto-detect / 自定义路径或自动检测  
 - **Advanced / 高级** — unlock manual same-rate Level, `1×`, and HEQ bypass (results may differ from stock DSEE HX) / 解锁手动同率 Level、`1×`、关闭 HEQ（结果可能与原版不同）  
 - **About / 关于** — version, repository, credits / 版本、仓库、署名  
-
----
-
-## Tips / 提示
-
-- Prefer a dedicated empty output folder so results are easy to find. / 建议单独空目录作输出，方便找结果。  
-- Long albums: leave the window running; status updates per track. / 长专辑可挂机跑，状态按曲更新。  
-- If analyze fails, check that ffmpeg/ffprobe work in Settings. / 分析失败时先到设置确认 ffmpeg/ffprobe 可用。  
-
----
-
-## Build from source / 从源码构建（可选）
-
-Developers only. End users should use Releases.
-
-仅开发者需要；普通用户请用 Releases。
-
-```bat
-copy .cargo\config.toml.example .cargo\config.toml
-npm install
-npm run tauri:dev
-```
-
-```bat
-npm run tauri:build
-```
-
-Needs Node 22+, Rust `stable-x86_64-pc-windows-gnu`, MinGW-w64 `gcc`, and ffmpeg/ffprobe.
 
 ---
 

@@ -131,7 +131,6 @@ function App() {
   const [outputDir, setOutputDir] = useState("");
   const [busy, setBusy] = useState(false);
   const [percent, setPercent] = useState(0);
-  const [progMsg, setProgMsg] = useState("");
   const [rowProg, setRowProg] = useState<Record<string, RowProg>>({});
   /** 工具栏批量上采样；非 null 时覆盖下行；全员最高一致才填，否则空 */
   const [globalUp, setGlobalUp] = useState<number | null>(null);
@@ -243,7 +242,6 @@ function App() {
     let unlistenDrop: (() => void) | undefined;
     listen<ProcessProgress>("process-progress", (e) => {
       setPercent(e.payload.percent);
-      setProgMsg(e.payload.message);
     }).then((fn) => {
       unlistenBatch = fn;
     });
@@ -727,7 +725,6 @@ function App() {
   async function run() {
     setBusy(true);
     setPercent(0);
-    setProgMsg("准备…");
     setRowProg({});
     dlog("run", { n: tracks.length, out: outputDir });
     const t0 = performance.now();
@@ -744,7 +741,6 @@ function App() {
       });
       const sec = ((performance.now() - t0) / 1000).toFixed(2);
       setPercent(100);
-      setProgMsg("完成");
       dlog("run", {
         ok: r.ok,
         fail: r.fail,
@@ -768,7 +764,6 @@ function App() {
       }
     } catch (e) {
       dlog("err", { event: "run", err: String(e) });
-      setProgMsg("失败");
     } finally {
       setBusy(false);
     }

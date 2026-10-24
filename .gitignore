@@ -22,6 +22,7 @@ src-tauri/app-icon-1024.png
 
 # Local scratch
 tmp/
+release/
 
 # Editor
 .vscode/*

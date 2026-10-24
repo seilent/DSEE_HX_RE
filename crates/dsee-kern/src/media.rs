@@ -5,6 +5,33 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+/// Hide console flash when spawning ffmpeg / ffprobe on Windows.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    let mut c = Command::new(program);
+    #[cfg(windows)]
+    {
+        c.creation_flags(CREATE_NO_WINDOW);
+    }
+    c
+}
+
+fn find_on_path(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        let p = dir.join(name);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
 static FFMPEG_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
 static FFPROBE_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
 
@@ -68,15 +95,8 @@ fn candidate_bins(env_keys: &[&str], names: &[&str]) -> Vec<PathBuf> {
         out.push(local.join(n));
     }
     for n in names {
-        if let Ok(o) = Command::new("where").arg(n).output() {
-            if o.status.success() {
-                if let Some(line) = String::from_utf8_lossy(&o.stdout).lines().next() {
-                    let pb = PathBuf::from(line.trim());
-                    if pb.is_file() {
-                        out.push(pb);
-                    }
-                }
-            }
+        if let Some(pb) = find_on_path(n) {
+            out.push(pb);
         }
     }
     out
@@ -170,7 +190,7 @@ fn bits_from_stream(a: &serde_json::Value) -> i32 {
 
 pub fn probe(path: &Path) -> Result<MediaInfo> {
     let ffprobe = ffprobe_path()?;
-    let out = Command::new(&ffprobe)
+    let out = command(&ffprobe)
         .args([
             "-v",
             "error",
@@ -254,7 +274,7 @@ pub struct S32leDecodeStream {
 impl S32leDecodeStream {
     pub fn spawn(path: &Path) -> Result<Self> {
         let ffmpeg = ffmpeg_path()?;
-        let mut child = Command::new(&ffmpeg)
+        let mut child = command(&ffmpeg)
             .args(["-v", "error", "-i"])
             .arg(path)
             .args(["-f", "s32le", "-acodec", "pcm_s32le", "-ac", "2", "-"])

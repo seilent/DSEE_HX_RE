@@ -10,3 +10,5 @@ target = "x86_64-pc-windows-gnu"
 
 [target.x86_64-pc-windows-gnu]
 linker = "gcc"
+# GUI subsystem (no console attached to the main window)
+rustflags = ["-C", "link-arg=-mwindows"]

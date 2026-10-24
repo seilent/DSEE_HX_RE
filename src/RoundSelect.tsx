@@ -38,13 +38,18 @@ export default function RoundSelect({
     Boolean(className?.includes("is-blank")) ||
     Boolean(className?.includes("row-blank"));
 
-  function placeMenu() {
+  function measureMenu(): { top: number; left: number; width: number } | null {
     const btn = rootRef.current?.querySelector<HTMLElement>(
       ".round-select-trigger",
     );
-    if (!btn) return;
+    if (!btn) return null;
     const r = btn.getBoundingClientRect();
-    setPos({ top: r.bottom + 4, left: r.left, width: Math.max(r.width, 72) });
+    return { top: r.bottom + 4, left: r.left, width: Math.max(r.width, 72) };
+  }
+
+  function placeMenu() {
+    const next = measureMenu();
+    if (next) setPos(next);
   }
 
   useEffect(() => {
@@ -71,10 +76,12 @@ export default function RoundSelect({
     };
   }, [open]);
 
+  // Hide until measured — avoids one-frame flash at (0,0) on first open.
   const menuStyle: CSSProperties = {
     top: pos.top,
     left: pos.left,
     minWidth: pos.width,
+    visibility: pos.width > 0 ? "visible" : "hidden",
   };
 
   return (
@@ -92,7 +99,15 @@ export default function RoundSelect({
         aria-haspopup="listbox"
         onClick={() => {
           if (disabled) return;
-          setOpen((v) => !v);
+          if (open) {
+            setOpen(false);
+            return;
+          }
+          // Measure in the same click handler so React batches pos+open
+          // and the portal never paints at the default (0,0).
+          const next = measureMenu();
+          if (next) setPos(next);
+          setOpen(true);
         }}
       >
         <span className={blank ? "round-select-label is-blank" : "round-select-label"}>

@@ -54,7 +54,7 @@ fn main() {
 
     build.compile("dsee_c_ref");
     // OpenMP for per-slot F76/F80 channel parallelism.
-    // link-lib is required for Tauri cdylib; link-arg alone is enough for bins.
+    // Dynamic libgomp — pack-portable.ps1 must ship its MinGW DLL closure.
     println!("cargo:rustc-link-lib=gomp");
     println!("cargo:rustc-link-arg=-fopenmp");
 }

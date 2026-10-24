@@ -6,7 +6,8 @@
 param([switch]$CheckOnly)
 $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
-$packDir = Join-Path $repo "release\DSEE_HX_RE_1_0_0"
+$ver = (Get-Content (Join-Path $repo "package.json") -Raw | ConvertFrom-Json).version
+$packDir = Join-Path $repo "release\DSEE_HX_RE_v$ver"
 $exe = Get-ChildItem $packDir -Filter "DSEE_HX_RE_*.exe" | Select-Object -First 1
 if (-not $exe) { throw "Pack not found: $packDir — run npm run tauri:pack first." }
 

@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 
 $ver = (Get-Content (Join-Path $repo "package.json") -Raw | ConvertFrom-Json).version
-$tag = "DSEE_HX_RE_" + ($ver -replace "\.", "_")
+$tag = "DSEE_HX_RE_v$ver"
 
 $candidates = @()
 if ($env:CARGO_TARGET_DIR) { $candidates += $env:CARGO_TARGET_DIR }

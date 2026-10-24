@@ -1,0 +1,163 @@
+import type { Locale } from "./i18n";
+
+const KEY = "dsee-hx-settings";
+
+export type ThemeMode = "dark" | "light";
+
+/** 基础色：系统主题色 + 黑白 + 红橙黄绿蓝紫 */
+export const BASE_COLORS = [
+  { id: "system", hue: 210, sat: 1, swatch: "" },
+  { id: "black", hue: 0, sat: 0, theme: "dark" as const, swatch: "#1a1a1a" },
+  { id: "white", hue: 0, sat: 0, theme: "light" as const, swatch: "#f2f2f2" },
+  { id: "red", hue: 0, sat: 1, swatch: "#c62828" },
+  { id: "orange", hue: 28, sat: 1, swatch: "#ef6c00" },
+  { id: "yellow", hue: 48, sat: 1, swatch: "#f9a825" },
+  { id: "green", hue: 140, sat: 1, swatch: "#2e7d32" },
+  { id: "blue", hue: 220, sat: 1, swatch: "#1565c0" },
+  { id: "purple", hue: 285, sat: 1, swatch: "#6a1b9a" },
+] as const;
+
+export type BaseColorId = (typeof BASE_COLORS)[number]["id"];
+
+export type AppSettings = {
+  language: Locale;
+  theme: ThemeMode;
+  baseColor: BaseColorId;
+  ffmpegPath: string;
+  ffprobePath: string;
+  /** 高级设置总开关；关闭时 DSP 与原版一致，打开后解锁主表 Level / 1× */
+  advanced: boolean;
+  /** HEQ 前置整形；false = 绕过 */
+  advHeq: boolean;
+};
+
+/** 首次启动跟系统语言：非中文环境默认英文 */
+export function detectLocale(): Locale {
+  try {
+    const lang = (
+      navigator.language ||
+      (navigator as Navigator & { userLanguage?: string }).userLanguage ||
+      ""
+    ).toLowerCase();
+    return lang.startsWith("zh") ? "zh" : "en";
+  } catch {
+    return "en";
+  }
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  language: "en",
+  theme: "dark",
+  baseColor: "black",
+  ffmpegPath: "",
+  ffprobePath: "",
+  advanced: false,
+  advHeq: true,
+};
+
+function isBaseColor(v: unknown): v is BaseColorId {
+  return BASE_COLORS.some((c) => c.id === v);
+}
+
+export function getBaseColor(id: BaseColorId) {
+  return BASE_COLORS.find((c) => c.id === id) ?? BASE_COLORS[1];
+}
+
+/** 读取系统主题色（CSS AccentColor → 色相） */
+export function readSystemAccent(): { hue: number; sat: number } {
+  try {
+    const el = document.createElement("div");
+    el.style.cssText =
+      "position:fixed;left:-9999px;top:0;pointer-events:none;color:AccentColor";
+    document.documentElement.appendChild(el);
+    const raw = getComputedStyle(el).color;
+    el.remove();
+    const m = raw.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+    if (!m) return { hue: 210, sat: 1 };
+    const r = Number(m[1]) / 255;
+    const g = Number(m[2]) / 255;
+    const b = Number(m[3]) / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const d = max - min;
+    const l = (max + min) / 2;
+    let h = 0;
+    let s = 0;
+    if (d > 1e-6) {
+      s = d / (1 - Math.abs(2 * l - 1));
+      switch (max) {
+        case r:
+          h = ((g - b) / d + (g < b ? 6 : 0)) * 60;
+          break;
+        case g:
+          h = ((b - r) / d + 2) * 60;
+          break;
+        default:
+          h = ((r - g) / d + 4) * 60;
+          break;
+      }
+    }
+    return {
+      hue: Math.round(((h % 360) + 360) % 360),
+      sat: s < 0.08 ? 0 : 1,
+    };
+  } catch {
+    return { hue: 210, sat: 1 };
+  }
+}
+
+export function loadSettings(): AppSettings {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) {
+      return { ...DEFAULT_SETTINGS, language: detectLocale() };
+    }
+    const parsed = JSON.parse(raw) as Partial<AppSettings>;
+    const baseColor = isBaseColor(parsed.baseColor)
+      ? parsed.baseColor
+      : DEFAULT_SETTINGS.baseColor;
+    const preset = getBaseColor(baseColor);
+    let theme: ThemeMode = parsed.theme === "light" ? "light" : "dark";
+    if ("theme" in preset && preset.theme) theme = preset.theme;
+    return {
+      language:
+        parsed.language === "zh"
+          ? "zh"
+          : parsed.language === "en"
+            ? "en"
+            : detectLocale(),
+      theme,
+      baseColor,
+      ffmpegPath: typeof parsed.ffmpegPath === "string" ? parsed.ffmpegPath : "",
+      ffprobePath:
+        typeof parsed.ffprobePath === "string" ? parsed.ffprobePath : "",
+      advanced: parsed.advanced === true,
+      advHeq: parsed.advHeq !== false,
+    };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+export function saveSettings(s: AppSettings) {
+  localStorage.setItem(KEY, JSON.stringify(s));
+}
+
+/** 把主题写到 documentElement，供 CSS 变量模板使用 */
+export function applyTheme(s: Pick<AppSettings, "theme" | "baseColor">) {
+  const root = document.documentElement;
+  const preset = getBaseColor(s.baseColor);
+  const theme =
+    "theme" in preset && preset.theme ? preset.theme : s.theme;
+  root.setAttribute("data-theme", theme);
+  if (preset.id === "system") {
+    const accent = readSystemAccent();
+    root.style.setProperty("--hue", String(accent.hue));
+    root.style.setProperty("--sat", String(accent.sat));
+    root.setAttribute("data-base", "system");
+  } else {
+    root.style.setProperty("--hue", String(preset.hue));
+    root.style.setProperty("--sat", String(preset.sat));
+    root.removeAttribute("data-base");
+  }
+}

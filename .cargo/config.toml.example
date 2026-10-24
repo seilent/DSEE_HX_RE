@@ -1,0 +1,12 @@
+# Prefer MinGW/gnu so the vendored C kernel (gcc builtins) and Rust share one linker.
+# Requires: rustup toolchain install stable-x86_64-pc-windows-gnu
+#           MinGW-w64 gcc on PATH (or DSEE_GCC)
+#
+# Copy to config.toml and adjust. If the repo path contains spaces,
+# set target-dir to a path without spaces (windres/gcc can break otherwise).
+[build]
+target = "x86_64-pc-windows-gnu"
+# target-dir = "C:/path/without/spaces/dsee-hx-cargo-target"
+
+[target.x86_64-pc-windows-gnu]
+linker = "gcc"

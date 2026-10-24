@@ -1,0 +1,21 @@
+[package]
+name = "DSEE_HX_RE"
+version = "1.0.0"
+description = "Sony DSEE HX — Reverse Engineering & Reimplementation"
+authors = ["屈乐凡"]
+edition = "2021"
+
+[lib]
+name = "dsee_hx_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+dsee-kern = { path = "../crates/dsee-kern" }
+tauri = { version = "2", features = ["image-png", "image-ico"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

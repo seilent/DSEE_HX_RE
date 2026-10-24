@@ -1,0 +1,19 @@
+[package]
+name = "dsee-kern"
+version = "0.1.0"
+edition = "2021"
+description = "DSEE HX DSP kernel — Rust API over bit-exact C (Music Center aligned)"
+license = "MIT"
+
+[features]
+default = ["c-ref"]
+c-ref = []
+
+[dependencies]
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[build-dependencies]
+cc = "1"
+walkdir = "2"

@@ -1,5 +1,7 @@
 use crate::error::{DseeError, Result};
 use crate::ffi::DseeMediaFacts;
+use std::collections::VecDeque;
+use std::fs;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -21,21 +23,10 @@ fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     c
 }
 
-fn find_on_path(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
-        let p = dir.join(name);
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-    None
-}
-
 static FFMPEG_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
 static FFPROBE_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-/// Optional absolute path override from the UI (empty / None → auto-detect).
+/// Explicit absolute path from the UI (empty / None → not configured).
 pub fn set_ffmpeg_override(path: Option<PathBuf>) {
     if let Ok(mut g) = FFMPEG_OVERRIDE.lock() {
         *g = path.filter(|p| !p.as_os_str().is_empty());
@@ -79,27 +70,101 @@ pub struct MediaInfo {
     pub duration: f64,
 }
 
-fn candidate_bins(env_keys: &[&str], names: &[&str]) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    for k in env_keys {
-        if let Ok(p) = std::env::var(k) {
-            let pb = PathBuf::from(p);
-            if pb.is_file() {
-                out.push(pb);
+/// Folder that contains the running exe (portable pack root, e.g. `DSEE_HX_RE_v1.0.0`).
+fn app_install_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    exe.parent().map(|p| p.to_path_buf())
+}
+
+/// BFS under `root` for any of `names` (case-insensitive). Prefers shallower paths.
+fn find_named_under(root: &Path, names: &[&str]) -> Option<PathBuf> {
+    let mut q = VecDeque::new();
+    q.push_back(root.to_path_buf());
+    while let Some(dir) = q.pop_front() {
+        let Ok(rd) = fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut subdirs = Vec::new();
+        for ent in rd.flatten() {
+            let p = ent.path();
+            let Ok(meta) = ent.metadata() else {
+                continue;
+            };
+            if meta.is_file() {
+                if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                    if names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+                        return Some(p);
+                    }
+                }
+            } else if meta.is_dir() {
+                subdirs.push(p);
+            }
+        }
+        q.extend(subdirs);
+    }
+    None
+}
+
+fn sibling_tool(of: &Path, names: &[&str]) -> Option<PathBuf> {
+    for name in names {
+        let sib = of.with_file_name(name);
+        if sib.is_file() {
+            return Some(sib);
+        }
+    }
+    None
+}
+
+fn find_on_path(names: &[&str]) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        for name in names {
+            let p = dir.join(name);
+            if p.is_file() {
+                return Some(p);
             }
         }
     }
-    let local = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../issue1/ffmpeg/ffmpeg-master-latest-win64-gpl-shared/bin");
-    for n in names {
-        out.push(local.join(n));
-    }
-    for n in names {
-        if let Some(pb) = find_on_path(n) {
-            out.push(pb);
+    None
+}
+
+fn find_from_env(keys: &[&str]) -> Option<PathBuf> {
+    for k in keys {
+        if let Ok(p) = std::env::var(k) {
+            let pb = PathBuf::from(p.trim());
+            if pb.is_file() {
+                return Some(pb);
+            }
         }
     }
-    out
+    None
+}
+
+/// Resolve one tool: app folder → env vars → system PATH.
+fn resolve_tool(env_keys: &[&str], names: &[&str]) -> Option<PathBuf> {
+    if let Some(root) = app_install_dir() {
+        if let Some(p) = find_named_under(&root, names) {
+            return Some(p);
+        }
+    }
+    find_from_env(env_keys).or_else(|| find_on_path(names))
+}
+
+/// Scan app folder (recursive) + env (`DSEE_FFMPEG` / `FFMPEG` …) + system `PATH`.
+/// Sets overrides to the resolved absolute paths (or clears if missing).
+pub fn detect_media_tools_in_app_dir() -> MediaToolsInfo {
+    let ffmpeg = resolve_tool(
+        &["DSEE_FFMPEG", "FFMPEG"],
+        &["ffmpeg.exe", "ffmpeg"],
+    );
+    let ffprobe = resolve_tool(
+        &["DSEE_FFPROBE", "FFPROBE"],
+        &["ffprobe.exe", "ffprobe"],
+    )
+    .or_else(|| ffmpeg.as_ref().and_then(|ff| sibling_tool(ff, &["ffprobe.exe", "ffprobe"])));
+    set_ffmpeg_override(ffmpeg);
+    set_ffprobe_override(ffprobe);
+    media_tools_info()
 }
 
 pub fn ffmpeg_path() -> Result<PathBuf> {
@@ -109,21 +174,13 @@ pub fn ffmpeg_path() -> Result<PathBuf> {
                 return Ok(p.clone());
             }
             return Err(DseeError::Ffmpeg(format!(
-                "ffmpeg override not found: {}",
+                "ffmpeg not found: {}",
                 p.display()
             )));
         }
     }
-    for p in candidate_bins(
-        &["DSEE_FFMPEG", "FFMPEG"],
-        &["ffmpeg.exe", "ffmpeg"],
-    ) {
-        if p.is_file() {
-            return Ok(p);
-        }
-    }
     Err(DseeError::Ffmpeg(
-        "ffmpeg not found (PATH / DSEE_FFMPEG)".into(),
+        "ffmpeg not configured (Auto-detect or set path in Settings)".into(),
     ))
 }
 
@@ -134,29 +191,18 @@ pub fn ffprobe_path() -> Result<PathBuf> {
                 return Ok(p.clone());
             }
             return Err(DseeError::Ffmpeg(format!(
-                "ffprobe override not found: {}",
+                "ffprobe not found: {}",
                 p.display()
             )));
         }
     }
-    for p in candidate_bins(
-        &["DSEE_FFPROBE", "FFPROBE"],
-        &["ffprobe.exe", "ffprobe"],
-    ) {
-        if p.is_file() {
-            return Ok(p);
-        }
-    }
     if let Ok(ff) = ffmpeg_path() {
-        for name in ["ffprobe.exe", "ffprobe"] {
-            let sib = ff.with_file_name(name);
-            if sib.is_file() {
-                return Ok(sib);
-            }
+        if let Some(sib) = sibling_tool(&ff, &["ffprobe.exe", "ffprobe"]) {
+            return Ok(sib);
         }
     }
     Err(DseeError::Ffmpeg(
-        "ffprobe not found (PATH / DSEE_FFPROBE)".into(),
+        "ffprobe not configured (Auto-detect or set path in Settings)".into(),
     ))
 }
 

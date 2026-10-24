@@ -133,7 +133,12 @@ export default function SettingsPage({
   );
 
   useEffect(() => {
-    void applyTools(settings.ffmpegPath, settings.ffprobePath);
+    // Prefer saved paths; first-boot detect is owned by App.
+    if (settings.mediaToolsBootstrapped) {
+      void applyTools(settings.ffmpegPath, settings.ffprobePath);
+    } else {
+      void refreshTools();
+    }
     void pushAdvanced(settings);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- mount sync only
 
@@ -142,6 +147,29 @@ export default function SettingsPage({
     saveSettings(next);
     onChange(next);
     return next;
+  }
+
+  async function runAutoDetect() {
+    setBusy(true);
+    dlog("media", { auto: "both" });
+    try {
+      const info = await invoke<MediaToolsInfo>("detect_media_tools");
+      const next = patch({
+        ffmpegPath: info.ffmpeg ?? "",
+        ffprobePath: info.ffprobe ?? "",
+        mediaToolsBootstrapped: true,
+      });
+      setTools(info);
+      dlog("media", {
+        detected: true,
+        ffmpeg: next.ffmpegPath || "-",
+        ffprobe: next.ffprobePath || "-",
+      });
+    } catch {
+      await refreshTools();
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function patchAdvanced(partial: Partial<AppSettings>) {
@@ -181,15 +209,9 @@ export default function SettingsPage({
     }
   }
 
-  async function clearPath(kind: "ffmpeg" | "ffprobe") {
-    dlog("media", { auto: kind });
-    if (kind === "ffmpeg") {
-      const next = patch({ ffmpegPath: "" });
-      await applyTools(next.ffmpegPath, next.ffprobePath);
-    } else {
-      const next = patch({ ffprobePath: "" });
-      await applyTools(next.ffmpegPath, next.ffprobePath);
-    }
+  async function clearPath(_kind: "ffmpeg" | "ffprobe") {
+    // Both buttons re-run full detect (app dir → env → PATH).
+    await runAutoDetect();
   }
 
   async function onPathBlur(kind: "ffmpeg" | "ffprobe", value: string) {

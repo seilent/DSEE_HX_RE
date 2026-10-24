@@ -20,7 +20,12 @@ import {
 } from "./dialogMemory";
 import RoundSelect from "./RoundSelect";
 import SettingsPage from "./SettingsPage";
-import { applyTheme, loadSettings, type AppSettings } from "./settings";
+import {
+  applyTheme,
+  loadSettings,
+  saveSettings,
+  type AppSettings,
+} from "./settings";
 import WindowControls from "./WindowControls";
 import "./App.css";
 
@@ -282,10 +287,36 @@ function App() {
       base: s.baseColor,
       advanced: s.advanced,
     });
-    void invoke("set_media_tools", {
-      ffmpeg: s.ffmpegPath.trim() || null,
-      ffprobe: s.ffprobePath.trim() || null,
-    });
+    void (async () => {
+      type MediaToolsInfo = {
+        ffmpeg: string | null;
+        ffmpegOk: boolean;
+        ffprobe: string | null;
+        ffprobeOk: boolean;
+      };
+      if (!s.mediaToolsBootstrapped) {
+        // First launch: scan app folder → env → PATH once, then persist.
+        const info = await invoke<MediaToolsInfo>("detect_media_tools");
+        const next: AppSettings = {
+          ...s,
+          ffmpegPath: info.ffmpeg ?? "",
+          ffprobePath: info.ffprobe ?? "",
+          mediaToolsBootstrapped: true,
+        };
+        saveSettings(next);
+        setSettings(next);
+        dlog("media", {
+          boot: "detect",
+          ffmpeg: next.ffmpegPath || "-",
+          ffprobe: next.ffprobePath || "-",
+        });
+      } else {
+        await invoke("set_media_tools", {
+          ffmpeg: s.ffmpegPath.trim() || null,
+          ffprobe: s.ffprobePath.trim() || null,
+        });
+      }
+    })();
     void invoke("set_advanced_overrides", {
       advanced: s.advanced,
       heq: s.advHeq,

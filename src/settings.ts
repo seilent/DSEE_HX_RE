@@ -25,6 +25,8 @@ export type AppSettings = {
   baseColor: BaseColorId;
   ffmpegPath: string;
   ffprobePath: string;
+  /** 是否已做过首次自动检测；之后只在设置里点「自动检测」才再扫 */
+  mediaToolsBootstrapped: boolean;
   /** 高级设置总开关；关闭时 DSP 与原版一致，打开后解锁主表 Level / 1× */
   advanced: boolean;
   /** HEQ 前置整形；false = 绕过 */
@@ -51,6 +53,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   baseColor: "black",
   ffmpegPath: "",
   ffprobePath: "",
+  mediaToolsBootstrapped: false,
   advanced: false,
   advHeq: true,
 };
@@ -131,6 +134,11 @@ export function loadSettings(): AppSettings {
       ffmpegPath: typeof parsed.ffmpegPath === "string" ? parsed.ffmpegPath : "",
       ffprobePath:
         typeof parsed.ffprobePath === "string" ? parsed.ffprobePath : "",
+      // Existing installs with saved paths count as already bootstrapped.
+      mediaToolsBootstrapped:
+        parsed.mediaToolsBootstrapped === true ||
+        (typeof parsed.ffmpegPath === "string" && parsed.ffmpegPath.trim() !== "") ||
+        (typeof parsed.ffprobePath === "string" && parsed.ffprobePath.trim() !== ""),
       advanced: parsed.advanced === true,
       advHeq: parsed.advHeq !== false,
     };

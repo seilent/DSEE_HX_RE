@@ -1,8 +1,9 @@
 mod debug_log;
 
 use dsee_kern::{
-    analyze_track, clear_prepared, default_slots, drop_prepared, media_tools_info,
-    plan_paths_rates, process_batch, set_advanced_dsp, set_ffmpeg_override, set_ffprobe_override,
+    analyze_track, clear_prepared, default_slots, detect_media_tools_in_app_dir, drop_prepared,
+    media_tools_info, plan_paths_rates, process_batch, set_advanced_dsp, set_ffmpeg_override,
+    set_ffprobe_override,
     MediaToolsInfo, TrackAnalysis, TrackHopProgress,
 };
 use serde::Deserialize;
@@ -154,6 +155,23 @@ fn set_media_tools(ffmpeg: Option<String>, ffprobe: Option<String>) -> MediaTool
         "media",
         &format!(
             "ffmpeg={} ok={} ffprobe={} ok={}",
+            info.ffmpeg.as_deref().unwrap_or("-"),
+            info.ffmpeg_ok,
+            info.ffprobe.as_deref().unwrap_or("-"),
+            info.ffprobe_ok
+        ),
+    );
+    info
+}
+
+/// Scan app folder + env vars + system PATH; persist results via overrides.
+#[tauri::command]
+fn detect_media_tools() -> MediaToolsInfo {
+    let info = detect_media_tools_in_app_dir();
+    debug_log::evt(
+        "media",
+        &format!(
+            "detect ffmpeg={} ok={} ffprobe={} ok={}",
             info.ffmpeg.as_deref().unwrap_or("-"),
             info.ffmpeg_ok,
             info.ffprobe.as_deref().unwrap_or("-"),
@@ -359,6 +377,7 @@ pub fn run() {
             clear_queue_prep,
             get_media_tools,
             set_media_tools,
+            detect_media_tools,
             set_advanced_overrides,
             debug_log_append,
             debug_log_read,

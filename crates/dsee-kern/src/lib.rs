@@ -19,8 +19,8 @@ pub use batch::{
 };
 pub use error::{DseeError, Result};
 pub use media::{
-    decode_s32le_stereo, media_tools_info, probe, set_ffmpeg_override, set_ffprobe_override,
-    MediaInfo, MediaToolsInfo,
+    decode_s32le_stereo, detect_media_tools_in_app_dir, media_tools_info, probe,
+    set_ffmpeg_override, set_ffprobe_override, MediaInfo, MediaToolsInfo,
 };
 pub use prepare::{
     analyze_track, clear_prepared, drop_prepared, ensure_prepared, process_file_cached,

@@ -76,6 +76,7 @@ fn cache() -> std::sync::MutexGuard<'static, Option<HashMap<PrepKey, Prepared>>>
     g
 }
 
+/// MC work_rates family for UI/output selection (≤48k: %4000→48 else→44.1).
 fn family_base(in_fs: i32) -> i32 {
     if in_fs == 44100 || in_fs == 88200 || in_fs == 176400 {
         return 44100;
@@ -83,6 +84,8 @@ fn family_base(in_fs: i32) -> i32 {
     if in_fs == 48000 || in_fs == 96000 || in_fs == 192000 {
         return 48000;
     }
+    // Same rule as open_source.c work_rates for content ≤48 kHz
+    // (32 kHz → 48 kHz family → 4× = 192 kHz, matching MC InputFsconv+F80).
     if in_fs <= 48000 {
         if in_fs % 4000 != 0 {
             44100
@@ -445,4 +448,22 @@ pub fn ensure_prepared(path: &Path, output_rate: i32, output_bits: &str) -> Resu
         Some(2)
     };
     analyze_track(path, up, output_bits, None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{family_base, output_rate_for_up};
+
+    #[test]
+    fn mc_work_rates_32k_is_48_family() {
+        assert_eq!(family_base(32_000), 48_000);
+        assert_eq!(output_rate_for_up(32_000, 2), 96_000);
+        assert_eq!(output_rate_for_up(32_000, 4), 192_000);
+    }
+
+    #[test]
+    fn mc_work_rates_22k05_is_441_family() {
+        assert_eq!(family_base(22_050), 44_100);
+        assert_eq!(output_rate_for_up(22_050, 4), 176_400);
+    }
 }

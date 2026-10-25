@@ -318,12 +318,36 @@ pub struct S32leDecodeStream {
 }
 
 impl S32leDecodeStream {
-    pub fn spawn(path: &Path) -> Result<Self> {
+    /// Decode stereo s32le. When `ar` is set, resample to that rate first.
+    /// Mirrors MC `OmgDseeHxFilter` InputFsconv (CFsconvWrap): content rate →
+    /// `work_rates` src (e.g. 32 kHz → 48 kHz) before HEQ/DSX. Without this,
+    /// feeding 32 kHz PCM into a 48→192 session plays ~1.5× fast/sharp.
+    pub fn spawn_ar(path: &Path, ar: Option<i32>) -> Result<Self> {
         let ffmpeg = ffmpeg_path()?;
+        let mut args: Vec<String> = vec![
+            "-v".into(),
+            "error".into(),
+            "-i".into(),
+            path.display().to_string(),
+        ];
+        if let Some(rate) = ar.filter(|&r| r > 0) {
+            // soxr ≈ high-quality InputFsconv; -ar alone uses default swr.
+            args.push("-af".into());
+            args.push(format!("aresample=resampler=soxr:precision=28:osr={rate}"));
+            args.push("-ar".into());
+            args.push(rate.to_string());
+        }
+        args.extend([
+            "-f".into(),
+            "s32le".into(),
+            "-acodec".into(),
+            "pcm_s32le".into(),
+            "-ac".into(),
+            "2".into(),
+            "-".into(),
+        ]);
         let mut child = command(&ffmpeg)
-            .args(["-v", "error", "-i"])
-            .arg(path)
-            .args(["-f", "s32le", "-acodec", "pcm_s32le", "-ac", "2", "-"])
+            .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -415,7 +439,11 @@ impl S32leDecodeStream {
 
 /// Decode entire file (tests / callers that need a Vec).
 pub fn decode_s32le_stereo(path: &Path) -> Result<Vec<i32>> {
-    let mut stream = S32leDecodeStream::spawn(path)?;
+    decode_s32le_stereo_ar(path, None)
+}
+
+pub fn decode_s32le_stereo_ar(path: &Path, ar: Option<i32>) -> Result<Vec<i32>> {
+    let mut stream = S32leDecodeStream::spawn_ar(path, ar.filter(|&r| r > 0))?;
     let mut pcm = Vec::new();
     let mut buf = vec![0i32; 64 * 1024];
     loop {

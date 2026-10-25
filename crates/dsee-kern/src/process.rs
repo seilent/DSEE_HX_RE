@@ -275,7 +275,14 @@ where
 {
     let t_all = Instant::now();
     let mut wav = WavWriter::create(req.output, sess.cfg.dst as u32, req.output_bits)?;
-    let mut decode = S32leDecodeStream::spawn(req.input)?;
+    // MC InputFsconv: content → work_rates src before HEQ/DSX (e.g. 32k→48k).
+    // Decode must match cfg.src or playback is fast/sharp (32k into 48→192 ≈ 1.5×).
+    let decode_ar = if info.rate != sess.cfg.src && sess.cfg.src > 0 {
+        Some(sess.cfg.src)
+    } else {
+        None
+    };
+    let mut decode = S32leDecodeStream::spawn_ar(req.input, decode_ar)?;
 
     // HEQ-only (MC hi-res same-rate): pack Q31 like OmgDseeHxFilter 25AB — no float.
     let heq_only = sess.cfg.f76 == 0 && sess.cfg.f80 == 0;
@@ -288,8 +295,13 @@ where
     let mut decode_s = 0.0;
     let mut dsp_s = 0.0;
     let mut write_s = 0.0;
-    let est_hops = if info.duration > 0.0 && info.rate > 0 && sess.cfg.rs_in > 0 {
-        ((info.duration * info.rate as f64) / sess.cfg.rs_in as f64).ceil() as usize
+    let work_rate = if sess.cfg.src > 0 {
+        sess.cfg.src
+    } else {
+        info.rate
+    };
+    let est_hops = if info.duration > 0.0 && work_rate > 0 && sess.cfg.rs_in > 0 {
+        ((info.duration * work_rate as f64) / sess.cfg.rs_in as f64).ceil() as usize
     } else {
         0
     };

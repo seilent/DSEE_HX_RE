@@ -778,6 +778,9 @@ static void load_tables(uint8_t *mem)
     memcpy(mem + MEM_CTX, dsee_f76_coeff, sizeof dsee_f76_coeff);
 }
 
+/* MC: content_fs → work src via InputFsconv, then F80 to dst.
+ * ≤48k: %4000≠0 → 44.1 family; else → 48 family (8/12/16/24/32k → 48).
+ * >48k: src stays content_fs (no InputFsconv). */
 static void work_rates(int in_fs, int out_fs, int *src, int *dst)
 {
     if (in_fs <= 48000) {

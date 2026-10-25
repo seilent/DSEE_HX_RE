@@ -1,6 +1,6 @@
 //! cargo run -p dsee-kern --example process_one -- <in> <out.wav> <rate> <bits>
 
-use dsee_kern::{process_file, set_ffmpeg_override, ProcessRequest};
+use dsee_kern::{detect_media_tools_in_app_dir, process_file, ProcessRequest};
 use std::env;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -16,12 +16,7 @@ fn main() {
     let rate: i32 = raw[2].parse().expect("rate");
     let bits = raw[3].as_str();
 
-    let ff = PathBuf::from(
-        r"C:\Users\Le_Fa\Desktop\DSEE HX\DSEE_HX_RE\release\DSEE_HX_RE_v1.0.0\ffmpeg-master-latest-win64-gpl-shared\bin\ffmpeg.exe",
-    );
-    if ff.is_file() {
-        set_ffmpeg_override(Some(ff));
-    }
+    detect_media_tools_in_app_dir();
 
     eprintln!("in={}", input.display());
     eprintln!("out={}", out.display());

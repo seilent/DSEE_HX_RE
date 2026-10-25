@@ -52,6 +52,10 @@ fn main() {
         }
     }
 
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        build.define("__declspec(x)", "__attribute__((visibility(\"default\")))");
+    }
+
     build.compile("dsee_c_ref");
     // OpenMP for per-slot F76/F80 channel parallelism.
     // Dynamic libgomp — pack-portable.ps1 must ship its MinGW DLL closure.
@@ -60,7 +64,7 @@ fn main() {
 }
 
 fn which(name: &str) -> bool {
-    std::process::Command::new("where")
+    std::process::Command::new(if cfg!(windows) { "where" } else { "which" })
         .arg(name)
         .output()
         .map(|o| o.status.success())

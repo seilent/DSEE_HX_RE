@@ -35,6 +35,7 @@ const zh = {
   delete: "删除",
   detail: "详情",
   unavailable: "不可用",
+  inactiveHiRes: "DSEE 未激活，仅 HEQ（与 MC 一致）",
   failed: "失败",
   emptyDrag: "将音频文件拖入此处",
   emptyOrAdd: "或点击左上角「添加」",
@@ -67,7 +68,7 @@ const zh = {
   exportLog: "导出日志",
   advanced: "高级设置",
   advancedWarn:
-    "打开后可手动改同率 Level、选 1×，且可关 HEQ；结果可能与原版 DSEE HX 不同，仅供谨慎实验。",
+    "打开后可强制 F76 Level、F80 倍数（1×/2×/4×），并可关 HEQ；可能与 Music Center 默认行为不同，仅供实验。",
   advHeq: "HEQ 前置整形",
   advHeqOn: "开启",
   advHeqOff: "关闭（绕过）",
@@ -120,6 +121,7 @@ const en: { [K in keyof typeof zh]: DictLeaf<(typeof zh)[K]> } = {
   delete: "Remove",
   detail: "Detail",
   unavailable: "N/A",
+  inactiveHiRes: "DSEE off, HEQ only (matches Music Center)",
   failed: "Failed",
   emptyDrag: "Drop audio files here",
   emptyOrAdd: "or click Add at the top left",
@@ -152,7 +154,7 @@ const en: { [K in keyof typeof zh]: DictLeaf<(typeof zh)[K]> } = {
   exportLog: "Export log",
   advanced: "Advanced",
   advancedWarn:
-    "Unlocks same-rate Level and 1× upsample, and HEQ off. Results may differ from stock DSEE HX.",
+    "Force F76 Level, F80 factor (1×/2×/4×), and HEQ off. May differ from Music Center defaults.",
   advHeq: "HEQ pre-shaping",
   advHeqOn: "On",
   advHeqOff: "Off (bypass)",

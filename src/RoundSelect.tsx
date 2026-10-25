@@ -134,7 +134,10 @@ export default function RoundSelect({
                     role="option"
                     aria-selected={active}
                     className={`round-select-option${active ? " is-active" : ""}`}
-                    onClick={() => {
+                    onMouseDown={(e) => {
+                      // Fire before document mousedown closes the portal (click would be lost).
+                      e.preventDefault();
+                      e.stopPropagation();
                       onChange?.(o.value);
                       setOpen(false);
                     }}

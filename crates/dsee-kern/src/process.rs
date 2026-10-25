@@ -1,6 +1,6 @@
 use crate::error::{DseeError, Result};
 use crate::ffi::{
-    dsee_fill_source, dsee_heq_delays, dsee_heq_gain, dsee_mem_size, dsee_open_source,
+    dsee_fill_source, dsee_heq, dsee_heq_delays, dsee_heq_gain, dsee_mem_size, dsee_open_source,
     dsee_process_i32, DseeCfg, DseeSource,
 };
 use crate::media::{self, MediaInfo, S32leDecodeStream};
@@ -117,9 +117,8 @@ fn open_session(info: &MediaInfo, output_rate: i32, output_bits: &str, enable: b
     if rc != 0 {
         return Err(DseeError::OpenSource(rc));
     }
-    if cfg.active == 0 {
-        return Err(DseeError::Inactive);
-    }
+    // cfg.active==0 means F76/F80 off (e.g. mode-2 hi-res same-rate). Music Center
+    // still runs HEQ in that case; frame.c already skips DSX when f76/f80 are 0.
 
     let mut delay = [0i32; 7];
     if unsafe { dsee_heq_delays(cfg.src, delay.as_mut_ptr()) } != 0 {
@@ -186,6 +185,38 @@ fn process_hops(sess: &mut Session, pcm: &[i32], hops: usize, out: &mut [f32]) -
     Ok(())
 }
 
+/// Music Center HEQ-only (F76/F80 off): HEQ → Q31 wire pack, no float/DSX.
+fn process_hops_heq_q31(
+    sess: &mut Session,
+    pcm: &[i32],
+    hops: usize,
+    out: &mut [i32],
+) -> Result<()> {
+    debug_assert_eq!(pcm.len(), hops * sess.n_in);
+    debug_assert_eq!(out.len(), hops * sess.n_out);
+    debug_assert_eq!(sess.n_in, sess.n_out);
+    for h in 0..hops {
+        let off = h * sess.n_in;
+        let nframe = (sess.n_in / 2) as i32;
+        unsafe {
+            dsee_heq(
+                sess.ring0.as_mut_ptr(),
+                sess.ring1.as_mut_ptr(),
+                sess.hist0.as_mut_ptr(),
+                sess.hist1.as_mut_ptr(),
+                &mut sess.lag,
+                &mut sess.hidx,
+                sess.delay.as_ptr(),
+                sess.gain,
+                pcm[off..].as_ptr(),
+                out[off..].as_mut_ptr(),
+                nframe,
+            );
+        }
+    }
+    Ok(())
+}
+
 pub fn process_file(req: &ProcessRequest<'_>) -> Result<ProcessReport> {
     process_file_with_progress(req, None::<fn(usize, usize)>)
 }
@@ -246,8 +277,12 @@ where
     let mut wav = WavWriter::create(req.output, sess.cfg.dst as u32, req.output_bits)?;
     let mut decode = S32leDecodeStream::spawn(req.input)?;
 
+    // HEQ-only (MC hi-res same-rate): pack Q31 like OmgDseeHxFilter 25AB — no float.
+    let heq_only = sess.cfg.f76 == 0 && sess.cfg.f80 == 0;
+
     let mut pcm_buf = vec![0i32; sess.hop_chunk * sess.n_in];
-    let mut out_buf = vec![0f32; sess.hop_chunk * sess.n_out];
+    let mut out_f = vec![0f32; sess.hop_chunk * sess.n_out];
+    let mut out_q = vec![0i32; sess.hop_chunk * sess.n_out];
     let mut pending: Vec<i32> = Vec::with_capacity(sess.n_in * 2);
     let mut hops_done = 0usize;
     let mut decode_s = 0.0;
@@ -281,10 +316,18 @@ where
         let pcm_n = take * sess.n_in;
         let out_n = take * sess.n_out;
         let t0 = Instant::now();
-        process_hops(&mut sess, &pending[..pcm_n], take, &mut out_buf[..out_n])?;
+        if heq_only {
+            process_hops_heq_q31(&mut sess, &pending[..pcm_n], take, &mut out_q[..out_n])?;
+        } else {
+            process_hops(&mut sess, &pending[..pcm_n], take, &mut out_f[..out_n])?;
+        }
         dsp_s += t0.elapsed().as_secs_f64();
         let t0 = Instant::now();
-        wav.write_samples(&out_buf[..out_n])?;
+        if heq_only {
+            wav.write_q31_samples(&out_q[..out_n])?;
+        } else {
+            wav.write_samples(&out_f[..out_n])?;
+        }
         write_s += t0.elapsed().as_secs_f64();
         pending.drain(..pcm_n);
         hops_done += take;

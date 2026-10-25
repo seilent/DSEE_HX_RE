@@ -75,6 +75,8 @@ type TrackAnalysis = {
   allowedUps: number[];
   slotCost: number;
   active: boolean;
+  /** Session ready (DSX and/or HEQ-only, matches MC). */
+  processable: boolean;
   error?: string | null;
 };
 
@@ -203,25 +205,34 @@ function App() {
       tracks.length > 0 &&
       Boolean(outputDir) &&
       !busy &&
-      tracks.every((t) => t.analysis?.active && !t.loading),
+      tracks.every(
+        (t) =>
+          Boolean(t.analysis?.processable ?? t.analysis?.active) && !t.loading,
+      ),
     [tracks, outputDir, busy],
   );
 
-  /** 总选框：默认不含 1×；高级模式解锁 1× */
+  /**
+   * 总选框上采样选项：
+   * - 默认：≤48k 给 F80；>48k / 同率修复给 1×（MC）
+   * - 高级：始终解锁 1× / 2× / 4× 供强制
+   */
   const headerUpOptions = useMemo(() => {
+    if (settings.advanced) return [1, 2, 4];
     const s = new Set<number>();
-    if (settings.advanced) s.add(1);
     for (const t of tracks) {
       const a = t.analysis;
       if (!a) continue;
-      for (const u of a.allowedUps) {
-        if (u > 1) s.add(u);
-      }
-      if (settings.advanced && (a.sameRateRepair || a.upFactor === 1)) {
+      if (a.inputRate > 48000 || a.sameRateRepair || a.upFactor === 1) {
         s.add(1);
       }
+      if (a.inputRate <= 48000) {
+        for (const u of a.allowedUps) {
+          if (u > 1) s.add(u);
+        }
+      }
     }
-    if (![...s].some((u) => u > 1)) {
+    if (s.size === 0) {
       s.add(2);
       s.add(4);
     }
@@ -346,14 +357,18 @@ function App() {
   }
 
   /**
-   * 上采样默认策略：
-   * - 所有可上采样轨最高倍率相同 → 总控填该值（常见为 4×），各行跟总控
-   * - 有的最高 2×、有的 4× → 总控空，各行各自最高
+   * 上采样默认策略（对齐 Music Center）：
+   * - 内容 ≤48 kHz：可上采样轨取最高 F80；全员相同则写入总控
+   * - 内容 >48 kHz：默认同率，不自动抬 F80（高级模式里再手动强制）
    */
   async function applyUpsPolicy(list: Track[]) {
     if (list.some((t) => t.loading)) return;
+    const adv = settingsRef.current.advanced;
     const upsTracks = list.filter(
-      (t) => t.analysis?.active && maxAllowedUp(t.analysis) > 1,
+      (t) =>
+        t.analysis?.active &&
+        maxAllowedUp(t.analysis) > 1 &&
+        (adv || t.analysis.inputRate <= 48000),
     );
     if (!upsTracks.length) {
       setGlobalUp(null);
@@ -486,6 +501,7 @@ function App() {
                   allowedUps: [],
                   slotCost: 1,
                   active: false,
+                  processable: false,
                   error: String(e),
                 },
               }
@@ -656,8 +672,19 @@ function App() {
     if (!t) return;
     dlog("up_policy", { row: t.path, up });
     setGlobalUp(null);
+    // Optimistic: show chosen factor immediately (avoids snap-back while analyzing).
     setTracks((prev) =>
-      prev.map((x, i) => (i === idx ? { ...x, loading: true } : x)),
+      prev.map((x, i) =>
+        i === idx
+          ? {
+              ...x,
+              loading: true,
+              analysis: x.analysis
+                ? { ...x.analysis, upFactor: up }
+                : x.analysis,
+            }
+          : x,
+      ),
     );
     try {
       const a = await analyzeOne(t.path, t.bits, up, t.levelOverride);
@@ -958,9 +985,14 @@ function App() {
                 const rp = rowProg[track.path];
                 const a = track.analysis;
                 const pct = rp?.failed ? 0 : (rp?.percent ?? 0);
+                const heqOnly = Boolean(
+                  a && !a.active && (a.processable ?? false),
+                );
                 const rowClass = [
                   "track-row",
-                  rp?.failed || (a && !a.active) ? "is-failed" : "",
+                  rp?.failed || (a && !a.processable && !a.active)
+                    ? "is-failed"
+                    : "",
                   rp?.done ? "is-done" : "",
                   busy && rp && !rp.done && !rp.failed ? "is-running" : "",
                 ]
@@ -977,15 +1009,18 @@ function App() {
                       : 16;
                 const upOptions: number[] = [];
                 if (a) {
-                  if (
-                    settings.advanced ||
-                    a.sameRateRepair ||
-                    a.upFactor === 1
-                  ) {
+                  if (settings.advanced) {
+                    upOptions.push(1, 2, 4);
+                  } else if (a.inputRate > 48000) {
+                    // Default MC: hi-res stays same-rate only.
                     upOptions.push(1);
-                  }
-                  for (const u of a.allowedUps.length ? a.allowedUps : [2, 4]) {
-                    if (!upOptions.includes(u)) upOptions.push(u);
+                  } else {
+                    if (a.sameRateRepair || a.upFactor === 1) {
+                      upOptions.push(1);
+                    }
+                    for (const u of a.allowedUps.length ? a.allowedUps : [2, 4]) {
+                      if (!upOptions.includes(u)) upOptions.push(u);
+                    }
                   }
                   if (!upOptions.length) upOptions.push(1, 2, 4);
                 }
@@ -1039,7 +1074,8 @@ function App() {
                               ? (a?.upFactor as number)
                               : (upOptions[0] ?? 1),
                           )}
-                          disabled={busy || !a?.active}
+                          // Keep enabled when inactive so advanced can force 2×/4× / Level.
+                          disabled={busy || !a}
                           onChange={(v) => void setTrackUp(idx, Number(v))}
                           aria-label={d.colUp}
                           options={upOptions.map((u) => ({
@@ -1068,30 +1104,34 @@ function App() {
                     <td
                       className={[
                         "col-status",
-                        a && !a.active
+                        a && !a.processable && !a.active
                           ? "is-error"
-                          : rp?.failed
-                            ? "is-error"
-                            : rp?.done
-                              ? "is-done"
-                              : rp
-                                ? "is-processing"
-                                : "",
+                          : heqOnly
+                            ? "is-heq-only"
+                            : rp?.failed
+                              ? "is-error"
+                              : rp?.done
+                                ? "is-done"
+                                : rp
+                                  ? "is-processing"
+                                  : "",
                       ]
                         .filter(Boolean)
                         .join(" ")}
                     >
                       {track.loading
                         ? d.analyzing
-                        : a && !a.active
-                          ? d.unavailable
-                          : rp?.failed
-                            ? d.statusError
-                            : rp?.done
-                              ? d.statusDone
-                              : rp
-                                ? d.statusProcessing
-                                : d.statusPending}
+                        : heqOnly
+                          ? d.inactiveHiRes
+                          : a && !a.processable && !a.active
+                            ? d.unavailable
+                            : rp?.failed
+                              ? d.statusError
+                              : rp?.done
+                                ? d.statusDone
+                                : rp
+                                  ? d.statusProcessing
+                                  : d.statusPending}
                     </td>
                     <td className="col-act">
                       <div className="act-btns">

@@ -12,28 +12,45 @@ pub fn normalize_bits(bits: &str) -> Result<u16> {
     }
 }
 
+/// Pack float PCM the way Music Center `OmgDseeHxFilter` does in `sub_61BE25AB`:
+/// cast to Q31 (trunc toward zero), then take the high 16/24/32 bits — not
+/// `round(x * (2^n-1))`, which was off by 1 LSB on ~25% of 24-bit samples.
 #[inline]
-fn encode_one(bps: u16, x: f32, out: &mut Vec<u8>) {
+fn to_q31(x: f32) -> i32 {
+    let x = x.clamp(-1.0, 1.0) as f64;
+    if x >= 1.0 {
+        return i32::MAX;
+    }
+    if x < -1.0 {
+        return i32::MIN;
+    }
+    (x * 2147483648.0) as i32
+}
+
+#[inline]
+fn encode_q31(bps: u16, q: i32, out: &mut Vec<u8>) {
     match bps {
         16 => {
-            let v = (x.clamp(-1.0, 1.0) as f64 * 32767.0).round() as i32;
-            let v = v.clamp(-32768, 32767) as i16;
+            let v = (q >> 16) as i16;
             out.extend_from_slice(&v.to_le_bytes());
         }
         24 => {
-            let v = (x.clamp(-1.0, 1.0) as f64 * 8_388_607.0).round() as i32;
-            let v = v.clamp(-8_388_608, 8_388_607) as u32;
+            // MC: BYTE1, BYTE2, HIBYTE of Q31 == (q >> 8) as 24-bit LE
+            let v = q >> 8;
             out.push((v & 0xff) as u8);
             out.push(((v >> 8) & 0xff) as u8);
             out.push(((v >> 16) & 0xff) as u8);
         }
         32 => {
-            let v = (x.clamp(-1.0, 1.0) as f64 * 2_147_483_647.0).round() as i64;
-            let v = v.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-            out.extend_from_slice(&v.to_le_bytes());
+            out.extend_from_slice(&q.to_le_bytes());
         }
         _ => unreachable!(),
     }
+}
+
+#[inline]
+fn encode_one(bps: u16, x: f32, out: &mut Vec<u8>) {
+    encode_q31(bps, to_q31(x), out);
 }
 
 fn bytes_per_sample(bps: u16) -> usize {
@@ -97,6 +114,25 @@ impl WavWriter {
         }
         for &x in samples {
             encode_one(self.bps, x, &mut self.scratch);
+        }
+        self.file.write_all(&self.scratch)?;
+        self.data_len = self
+            .data_len
+            .checked_add(self.scratch.len() as u32)
+            .ok_or_else(|| DseeError::Msg("WAV data too large".into()))?;
+        Ok(())
+    }
+
+    /// Pack Q31 int32 the way Music Center `sub_61BE25AB` does (HEQ-only path:
+    /// HEQ → wire, no float/DSX). Avoids float32 mantissa loss on full-scale Q31.
+    pub fn write_q31_samples(&mut self, samples: &[i32]) -> Result<()> {
+        self.scratch.clear();
+        let need = samples.len() * bytes_per_sample(self.bps);
+        if self.scratch.capacity() < need {
+            self.scratch.reserve(need - self.scratch.capacity());
+        }
+        for &q in samples {
+            encode_q31(self.bps, q, &mut self.scratch);
         }
         self.file.write_all(&self.scratch)?;
         self.data_len = self

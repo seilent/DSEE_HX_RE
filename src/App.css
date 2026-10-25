@@ -585,6 +585,10 @@ body {
   color: var(--text);
 }
 
+.col-status.is-heq-only {
+  color: var(--muted);
+}
+
 .col-act {
   text-align: right;
 }

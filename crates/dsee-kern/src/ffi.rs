@@ -72,6 +72,19 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn dsee_heq_delays(rate: c_int, delay: *mut c_int) -> c_int;
     pub fn dsee_heq_gain(bits: c_int, gain: *mut c_float) -> c_int;
+    pub fn dsee_heq(
+        ring0: *mut c_float,
+        ring1: *mut c_float,
+        hist0: *mut c_float,
+        hist1: *mut c_float,
+        lag: *mut c_int,
+        hidx: *mut c_int,
+        delay: *const c_int,
+        gain: c_double,
+        inn: *const i32,
+        out: *mut i32,
+        nframe: c_int,
+    );
     pub fn dsee_process_i32(
         mem: *mut u8,
         ring0: *mut c_float,

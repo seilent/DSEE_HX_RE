@@ -46,7 +46,10 @@ pub struct TrackAnalysis {
     /// Allowed F80 factors (subset of 2,4). Empty when only same-rate repair.
     pub allowed_ups: Vec<i32>,
     pub slot_cost: usize,
+    /// DSX path on (F76 and/or F80). False still allows HEQ-only process when `processable`.
     pub active: bool,
+    /// Session cached / batch can run (includes MC-style HEQ-only when DSX inactive).
+    pub processable: bool,
     pub error: Option<String>,
 }
 
@@ -155,6 +158,8 @@ fn inactive_analysis(
     info: &MediaInfo,
     bits_str: &str,
     allowed_ups: Vec<i32>,
+    up_factor: i32,
+    output_rate: i32,
 ) -> TrackAnalysis {
     TrackAnalysis {
         path: path.display().to_string(),
@@ -165,13 +170,14 @@ fn inactive_analysis(
         f76: false,
         f80: false,
         mode: 0,
-        up_factor: 1,
-        output_rate: same_rate_out(info.rate),
+        up_factor,
+        output_rate,
         output_bits: bits_str.to_string(),
         same_rate_repair: false,
         allowed_ups,
         slot_cost: 1,
         active: false,
+        processable: false,
         error: Some("DSEE HX inactive for these parameters".into()),
     }
 }
@@ -247,28 +253,49 @@ pub fn analyze_track(
     }
 
     let f80_force = F80_FORCE.load(Ordering::SeqCst);
+    // Default (auto) matches Music Center:
+    //   ≤48 kHz → prefer max F80; hi-res content → same-rate (often inactive for
+    //   lossless mode-2), never auto-pick F80 on already-hi-res sources.
+    // Explicit up_factor / F80_FORCE (advanced UI) always wins.
     let (chosen_up, out_rate) = if f80_force == 1 {
         (1, same_out)
     } else if f80_force == 2 || f80_force == 4 {
         (f80_force, output_rate_for_up(in_fs, f80_force))
     } else if let Some(u) = up_factor {
-        if u <= 1 && same_rate_repair {
+        if u <= 1 {
             (1, same_out)
-        } else if allowed_ups.contains(&u) {
+        } else if u == 2 || u == 4 {
+            // User/advanced explicit F80 factor — do not require prior probe hit.
             (u, output_rate_for_up(in_fs, u))
-        } else if let Some(&u) = allowed_ups.iter().rev().next() {
+        } else if allowed_ups.contains(&u) {
             (u, output_rate_for_up(in_fs, u))
         } else if same_rate_repair {
             (1, same_out)
         } else {
-            return Ok(inactive_analysis(path, &info, &bits_str, allowed_ups));
+            return Ok(inactive_analysis(
+                path,
+                &info,
+                &bits_str,
+                allowed_ups,
+                1,
+                same_out,
+            ));
         }
+    } else if in_fs > 48000 {
+        (1, same_out)
     } else if let Some(&u) = allowed_ups.iter().rev().next() {
         (u, output_rate_for_up(in_fs, u))
     } else if same_rate_repair {
         (1, same_out)
     } else {
-        return Ok(inactive_analysis(path, &info, &bits_str, allowed_ups));
+        return Ok(inactive_analysis(
+            path,
+            &info,
+            &bits_str,
+            allowed_ups,
+            1,
+            same_out,
+        ));
     };
 
     // Advanced F80 force: advertise the forced factor in allowed_ups for UI.
@@ -280,11 +307,43 @@ pub fn analyze_track(
         allowed_ups
     };
 
-    // Final open for the chosen plan — this Session is cached for process.
-    let (sess, level) = try_open(&info, out_rate, &bits_str, level_override)?;
+    // Final open: align C F80 override with chosen factor so advanced
+    // 2×/4× can force F80 even when decide() would leave it off (e.g. mode-2).
+    let (sess, level) = {
+        let prev = F80_FORCE.load(Ordering::SeqCst);
+        let hint = if chosen_up == 2 || chosen_up == 4 {
+            chosen_up
+        } else if chosen_up <= 1 {
+            1
+        } else {
+            prev
+        };
+        unsafe {
+            dsee_set_f80_override(hint);
+        }
+        let opened = try_open(&info, out_rate, &bits_str, level_override);
+        unsafe {
+            dsee_set_f80_override(prev);
+        }
+        match opened {
+            Ok(v) => v,
+            Err(DseeError::Inactive) => {
+                return Ok(inactive_analysis(
+                    path,
+                    &info,
+                    &bits_str,
+                    allowed_ups,
+                    chosen_up,
+                    out_rate,
+                ));
+            }
+            Err(e) => return Err(e),
+        }
+    };
     let f76 = sess.cfg.f76 != 0;
     let f80 = sess.cfg.f80 != 0;
     let mode = sess.source.mode;
+    let dsx_active = sess.cfg.active != 0;
     let slot_cost = if f80 { 2 } else { 1 };
     let analysis = TrackAnalysis {
         path: path.display().to_string(),
@@ -301,17 +360,11 @@ pub fn analyze_track(
         same_rate_repair: chosen_up <= 1 || (f76 && !f80),
         allowed_ups,
         slot_cost,
-        active: sess.cfg.active != 0,
-        error: if sess.cfg.active == 0 {
-            Some("DSEE HX inactive for these parameters".into())
-        } else {
-            None
-        },
+        active: dsx_active,
+        // HEQ-only when DSX off — matches Music Center for hi-res lossless same-rate.
+        processable: true,
+        error: None,
     };
-
-    if !analysis.active {
-        return Ok(analysis);
-    }
 
     let key = PrepKey {
         path: path.to_path_buf(),

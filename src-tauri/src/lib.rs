@@ -109,9 +109,10 @@ async fn analyze_queue_track(
             debug_log::evt(
                 "analyze",
                 &format!(
-                    "ok path={} active={} in_fs={} out_fs={} up={} bits={} level={} same={} allowed=[{}] slots={} err={}",
+                    "ok path={} active={} processable={} in_fs={} out_fs={} up={} bits={} level={} same={} allowed=[{}] slots={} err={}",
                     a.path,
                     a.active,
+                    a.processable,
                     a.input_rate,
                     a.output_rate,
                     a.up_factor,

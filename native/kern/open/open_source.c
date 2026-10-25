@@ -386,6 +386,18 @@ static void apply_f80_override(DseeCfg *cfg)
     cfg->active = (cfg->f80 || cfg->f76) ? 1 : 0;
 }
 
+/* Advanced: level 8..15 forces F76 on (even mode-2); 16 forces F76 off. */
+static void apply_level_override_f76(DseeCfg *cfg)
+{
+    if (g_level_override >= 8 && g_level_override < 16) {
+        cfg->f76 = 1;
+        cfg->active = 1;
+    } else if (g_level_override == 16) {
+        cfg->f76 = 0;
+        cfg->active = (cfg->f80 || cfg->f76) ? 1 : 0;
+    }
+}
+
 static int pick_f76(int *st)
 {
     int level = 16;
@@ -827,6 +839,7 @@ EXPORT int dsee_open_source(uint8_t *mem, int mem_size, const DseeSource *s,
     if (rc)
         return 20 + rc;
     apply_f80_override(out);
+    apply_level_override_f76(out);
 
     alloc_buffers(mem);
     f76_tables(mem, st[15]);
